@@ -56,11 +56,17 @@ class Genome:
     which is crucial for crossover operations in NEAT.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize an empty genome with no nodes or connections."""
         self.nodes: Dict[int, NodeGene] = {}
         self.connections: Dict[int, ConnectionGene] = {}
         self._compiled: Tuple[Callable[[jax.Array], jax.Array], Dict[str, Any]] | None = None
+    
+    def copy(self) -> "Genome":
+        g = Genome()
+        g.nodes = {nid: node.copy() for nid, node in self.nodes.items()}
+        g.connections = {innov: conn.copy() for innov, conn in self.connections.items()}
+        return g
     
     @staticmethod
     def from_initial_feedforward(
@@ -71,7 +77,7 @@ class Genome:
         add_bias: bool = True,
         key: jax.Array,
         w_init_std: float = 1.0,
-    ) -> Tuple["Genome", List[int], List[int], int]:
+    ) -> Tuple["Genome", List[int], List[int], int | None]:
         """
         Create an initial fully-connected feed-forward network for NEAT evolution.
 
@@ -319,16 +325,16 @@ class Genome:
         """
         Get the input, output, and bias node IDs.
         """
-        bias = [n.id for n in self.nodes.values() if n.type == BIAS]
-        assert len(bias) <= 1, "Only one bias node is allowed"
-        bias = bias[0] if bias else None
+        bias_ids = [n.id for n in self.nodes.values() if n.type == BIAS]
+        assert len(bias_ids) <= 1, "Only one bias node is allowed"
+        bias_id = bias_ids[0] if bias_ids else None
         return (
-            [n.id for n in self.nodes.values() if n.type == INPUT],
-            [n.id for n in self.nodes.values() if n.type == OUTPUT],
-            bias,
+            sorted([n.id for n in self.nodes.values() if n.type == INPUT]),
+            sorted([n.id for n in self.nodes.values() if n.type == OUTPUT]),
+            bias_id,
         )
     
-    def compile_feedforward(self):
+    def compile_feedforward(self) -> None:
         """
         Compile the genome into a feedforward network.
         """
@@ -391,12 +397,14 @@ class Genome:
             "levels": levels,
         }
         self._compiled = (f, meta)
-        return self._compiled
 
     def forward(self, x: jax.Array) -> jax.Array:
         if self._compiled is None:
             self.compile_feedforward()
-        f, _ = self._compiled
+        compiled = self._compiled
+        if compiled is None:
+            raise RuntimeError("Failed to compile feedforward network")
+        f, _ = compiled
         return f(x)
     
     def compatibility_distance(self, other: "Genome", c1: float = 1.0, c2: float = 1.0, c3: float = 0.4) -> float:
