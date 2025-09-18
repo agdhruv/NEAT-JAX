@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Tuple
 
 import jax
 import jax.random as jr
@@ -43,6 +43,7 @@ class ConnectionGene:
             enabled=self.enabled)
 
 
+@dataclass
 class Genome:
     """
     Represents a NEAT genome containing nodes and connections.
@@ -55,18 +56,30 @@ class Genome:
     Each connection has an innovation number for historical marking,
     which is crucial for crossover operations in NEAT.
     """
-
-    def __init__(self) -> None:
-        """Initialize an empty genome with no nodes or connections."""
-        self.nodes: Dict[int, NodeGene] = {}
-        self.connections: Dict[int, ConnectionGene] = {}
-        self._compiled: Tuple[Callable[[jax.Array], jax.Array], Dict[str, Any]] | None = None
+    nodes: Dict[int, NodeGene] = field(default_factory=dict)
+    connections: Dict[int, ConnectionGene] = field(default_factory=dict)
+    
+    def __hash__(self) -> int:
+        """
+        Computes a hash based on the genome's structure (topology),
+        ignoring weights. This allows JAX to cache compiled functions
+        for structurally identical genomes.
+        """
+        # Create a canonical, hashable representation of nodes
+        node_items = sorted(self.nodes.items())
+        node_tuple = tuple((nid, n.type, n.level) for nid, n in node_items)
+        
+        # Create a canonical, hashable representation of connections' structure
+        conn_items = sorted(self.connections.items())
+        conn_tuple = tuple((innov, c.in_node, c.out_node, c.enabled) for innov, c in conn_items)
+        
+        return hash((node_tuple, conn_tuple))
     
     def copy(self) -> "Genome":
-        g = Genome()
-        g.nodes = {nid: node.copy() for nid, node in self.nodes.items()}
-        g.connections = {innov: conn.copy() for innov, conn in self.connections.items()}
-        return g
+        return Genome(
+            nodes={nid: node.copy() for nid, node in self.nodes.items()},
+            connections={innov: conn.copy() for innov, conn in self.connections.items()}
+        )
     
     @staticmethod
     def from_initial_feedforward(
@@ -81,7 +94,7 @@ class Genome:
         """
         Create an initial fully-connected feed-forward network for NEAT evolution.
 
-        This creates the minimal starting topology that NEAT algorithms typically
+        This creates the starting topology that the NEAT algorithms will
         begin with: a direct connection from each input (and optional bias) to
         each output node. This allows the evolution to start simple and complexify
         through structural mutations.
@@ -109,7 +122,6 @@ class Genome:
         g = Genome()
 
         # Create input nodes at level 0 (feed-forward level)
-        # Input nodes simply pass through their values without computation
         input_node_ids = []
         for _ in range(n_inputs):
             node_id = tracker.allocate_node()
@@ -124,7 +136,6 @@ class Genome:
             g.nodes[bias_node_id] = NodeGene(id=bias_node_id, type=BIAS, level=0)
 
         # Create output nodes at level 1
-        # These will compute activation functions on their inputs
         output_node_ids = []
         for _ in range(n_outputs):
             node_id = tracker.allocate_node()
@@ -175,9 +186,7 @@ class Genome:
         if not self.connections:
             return
 
-        innovations = list(
-            self.connections.keys()
-        )  # list of innovation numbers (i.e., list of ids for each weight)
+        innovations = list(self.connections.keys())  # list of innovation numbers (i.e., list of ids for each weight)
         k1, k2 = jr.split(key)
         noise = jr.normal(k1, (len(innovations),)) * sigma
         reset_mask = jr.bernoulli(k2, p=p_reset, shape=(len(innovations),))
@@ -187,9 +196,7 @@ class Genome:
 
         for idx, innovation in enumerate(innovations):
             if reset_mask[idx]:
-                self.connections[innovation].weight = float(
-                    jr.normal(reset_keys[idx]) * w_init_std
-                )
+                self.connections[innovation].weight = float(jr.normal(reset_keys[idx]) * w_init_std)
             else:
                 self.connections[innovation].weight += float(noise[idx])
 
@@ -203,19 +210,14 @@ class Genome:
             tracker: InnovationTracker to provide innovation IDs for new connections
             w_init_std: Standard deviation for new random weights when resetting
         """
-        existing_conns = {
-            (c.in_node, c.out_node) for c in self.connections.values()
-        }  # includes disabled connections
+        existing_conns = {(c.in_node, c.out_node) for c in self.connections.values()}  # includes disabled connections
         node_ids = list(self.nodes.keys())
 
         # candidates for new connections
         candidates = []
         for in_node_id in node_ids:
             for out_node_id in node_ids:
-                if (
-                    in_node_id == out_node_id
-                    or (in_node_id, out_node_id) in existing_conns
-                ):
+                if in_node_id == out_node_id or (in_node_id, out_node_id) in existing_conns:
                     continue
                 level_in = self.nodes[in_node_id].level
                 level_out = self.nodes[out_node_id].level
@@ -242,16 +244,11 @@ class Genome:
             weight=w,
             enabled=True,
         )
-        
-        # compiled graph is now stale
-        self._compiled = None
 
     def _bump_levels_from(self, start_level: int) -> None:
         for n in self.nodes.values():
             if n.level >= start_level:
                 n.level += 1
-        # compiled graph is now stale
-        self._compiled = None
 
     def mutate_add_node(self, key: jax.Array, tracker: InnovationTracker):
         """
@@ -301,8 +298,6 @@ class Genome:
             weight=c.weight,
             enabled=True,
         )
-        # compiled graph is now stale
-        self._compiled = None
 
     def mutate_toggle_connection(self, key: jax.Array):
         """
@@ -316,96 +311,6 @@ class Genome:
         idx = int(jr.randint(key, (), 0, len(self.connections)))
         c = list(self.connections.values())[idx]
         c.enabled = not c.enabled
-        # compiled graph is now stale
-        self._compiled = None
-    
-    # ----------------- Build forward pass -----------------
-    
-    def _get_io_ids(self) -> Tuple[List[int], List[int], int | None]:
-        """
-        Get the input, output, and bias node IDs.
-        """
-        bias_ids = [n.id for n in self.nodes.values() if n.type == BIAS]
-        assert len(bias_ids) <= 1, "Only one bias node is allowed"
-        bias_id = bias_ids[0] if bias_ids else None
-        return (
-            sorted([n.id for n in self.nodes.values() if n.type == INPUT]),
-            sorted([n.id for n in self.nodes.values() if n.type == OUTPUT]),
-            bias_id,
-        )
-    
-    def compile_feedforward(self) -> None:
-        """
-        Compile the genome into a feedforward network.
-        """
-        # by_level: dict of level -> list of node ids in that level
-        by_level: Dict[int, List[int]] = {}
-        for node_id, node in self.nodes.items():
-            by_level.setdefault(node.level, []).append(node_id)
-        
-        # levels: list of levels in ascending order
-        levels = sorted(by_level.keys())
-        input_ids, output_ids, bias_id = self._get_io_ids()
-        
-        # for each target node, a list of its enabled incoming edges (in_node_id, weight)
-        incoming: Dict[int, List[Tuple[int, float]]] = {}
-        for c in self.connections.values():
-            if not c.enabled:
-                continue
-            incoming.setdefault(c.out_node, []).append((c.in_node, c.weight))
-        
-        # levels to execute (hidden layers)
-        exec_levels = [level for level in levels if level > 0]
-        
-        # activation functions
-        def act_hidden(x):
-            return jnp.tanh(x)
-        
-        def act_output(x):
-            return jnp.tanh(x)
-        
-        def f(x: jax.Array) -> jax.Array:
-            # x shape: (n_inputs,)
-            if x.ndim != 1 or x.shape[0] != len(input_ids):
-                raise ValueError(f"Expected x.shape == ({len(input_ids)},), got {tuple(x.shape)}")
-            
-            # set inputs
-            vals: Dict[int, jax.Array] = {id: x[i] for i, id in enumerate(input_ids)}
-            # set bias
-            if bias_id is not None:
-                vals[bias_id] = jnp.array(1.0, dtype=x.dtype)
-            
-            # compute hidden and output layers
-            for level in exec_levels:
-                for node_id in by_level[level]:
-                    inc = incoming.get(node_id, [])
-                    # sum of incoming weights * values
-                    s = jnp.array(0.0, dtype=x.dtype)
-                    for in_id, w in inc:
-                        s += jnp.array(w, dtype=x.dtype) * vals[in_id]
-                    # activation depends on node type
-                    vals[node_id] = act_output(s) if self.nodes[node_id].type == OUTPUT else act_hidden(s)
-            
-            # return outputs
-            return jnp.stack([vals[nid] for nid in output_ids], axis=0)
-
-        # compile graph
-        meta = {
-            "input_ids": input_ids,
-            "output_ids": output_ids,
-            "bias_id": bias_id,
-            "levels": levels,
-        }
-        self._compiled = (f, meta)
-
-    def forward(self, x: jax.Array) -> jax.Array:
-        if self._compiled is None:
-            self.compile_feedforward()
-        compiled = self._compiled
-        if compiled is None:
-            raise RuntimeError("Failed to compile feedforward network")
-        f, _ = compiled
-        return f(x)
     
     def compatibility_distance(self, other: "Genome", c1: float = 1.0, c2: float = 1.0, c3: float = 0.4) -> float:
         a = self.connections
@@ -477,3 +382,51 @@ class Genome:
                 del child.connections[c.innovation]
         
         return child
+
+def _phenotype_forward(genome: Genome, x: jax.Array) -> jax.Array:
+    """
+    A pure, JIT-compilable function to execute the forward pass of a genome's network.
+    """
+    bias_ids = [n.id for n in genome.nodes.values() if n.type == BIAS]
+    bias_id = bias_ids[0] if bias_ids else None
+    input_ids = sorted([n.id for n in genome.nodes.values() if n.type == INPUT])
+    output_ids = sorted([n.id for n in genome.nodes.values() if n.type == OUTPUT])
+    
+    # by_level: dict of level -> list of node ids in that level
+    by_level: Dict[int, List[int]] = {}
+    for node_id, node in genome.nodes.items():
+        by_level.setdefault(node.level, []).append(node_id)
+    
+    levels = sorted(by_level.keys())
+    
+    # for each target node, a list of its enabled incoming edges (in_node_id, weight)
+    incoming: Dict[int, List[Tuple[int, float]]] = {}
+    for c in genome.connections.values():
+        if c.enabled:
+            incoming.setdefault(c.out_node, []).append((c.in_node, c.weight))
+    
+    exec_levels = [level for level in levels if level > 0]
+    
+    # activation functions
+    act_hidden = jnp.tanh
+    act_output = jnp.tanh
+    
+    # set inputs (will also store outputs from hidden and output layers)
+    vals: Dict[int, jax.Array] = {id: x[i] for i, id in enumerate(input_ids)}
+    if bias_id is not None:
+        vals[bias_id] = jnp.array(1.0, dtype=x.dtype)
+    
+    for level in exec_levels:
+        for node_id in by_level[level]:
+            inc = incoming.get(node_id, [])
+            s = jnp.array(0.0, dtype=x.dtype)
+            for in_id, w in inc:
+                s += jnp.array(w, dtype=x.dtype) * vals[in_id]
+            
+            activation = act_output if genome.nodes[node_id].type == OUTPUT else act_hidden
+            vals[node_id] = activation(s)
+    
+    return jnp.stack([vals[nid] for nid in output_ids], axis=0)
+
+# Create the JIT-compiled version of the function, marking the genome as a static argument.
+phenotype_forward = jax.jit(_phenotype_forward, static_argnames="genome")

@@ -179,7 +179,7 @@ class Population:
             simple mutation of random parents to maintain population diversity.
             """
             for _ in range(self.config.pop_size):
-                key, k_sel, k_mw, k_ac_b, k_ac = jr.split(key)
+                key, k_sel, k_mw, k_ac_b, k_ac = jr.split(key, 5)
                 # Select random parent from current population
                 parent_idx = int(jr.randint(k_sel, (), 0, len(self.genomes)))
                 parent = self.genomes[parent_idx]
