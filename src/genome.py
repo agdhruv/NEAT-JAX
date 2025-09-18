@@ -90,7 +90,7 @@ class Genome:
         add_bias: bool = True,
         key: jax.Array,
         w_init_std: float = 1.0,
-    ) -> Tuple["Genome", List[int], List[int], int | None]:
+    ) -> "Genome":
         """
         Create an initial fully-connected feed-forward network for NEAT evolution.
 
@@ -161,7 +161,7 @@ class Genome:
                     enabled=True,  # All connections start enabled
                 )
 
-        return g, input_node_ids, output_node_ids, bias_node_id
+        return g
 
     # ----------------- Mutations -----------------
     def mutate_weights(

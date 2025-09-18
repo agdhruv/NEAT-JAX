@@ -53,17 +53,18 @@ class Population:
         tracker = InnovationTracker()
         genomes: List[Genome] = []
         
-        # Build a shared initial template with shared node IDs and initial connection innovations
+        # 1) Build a single template with global node/innov IDs
+        k0, key = jr.split(key)
+        template_genome = Genome.from_initial_feedforward(
+            n_inputs, n_outputs, tracker=tracker, key=k0, add_bias=add_bias, w_init_std=1.0
+        )
+        
+        # 2) Copy it pop_size times and reinit weights per copy
         for i in range(config.pop_size):
             key, k = jr.split(key)
-            g, _, _, _ = Genome.from_initial_feedforward(
-                n_inputs,
-                n_outputs,
-                tracker=tracker,
-                key=k,
-                add_bias=add_bias,
-                w_init_std=1.0
-            )
+            g = template_genome.copy()
+            # reinit all connection weights
+            g.mutate_weights(k, p_reset=1.0, w_init_std=config.w_init_std)
             genomes.append(g)
         return Population(genomes, tracker, key, config)
     
@@ -132,14 +133,21 @@ class Population:
     def _adjust_fitness(self) -> List[float]:
         adjusted_fitness = [0.0] * len(self.genomes)  # will store adjusted fitness for each genome
         # for each genome, adjusted fitness is its fitness divided by the size of its species
+        
+        # we will eventually use the adjusted fitness to define a probability distribution for selection
+        # (i.e., to decide which species should get more offspring)
+        # So, adjusted fitness should be positive for all species (so that we can normalize and get a valid probability distribution)
+        # so, we will just shift all fitness values to be positive
+        assert self.fitness, Exception("Fitness values should be defined for all genomes (even if they are zero)")
+        min_fitness = min(self.fitness)
+        shift = (-min_fitness + 1e-8) if min_fitness < 0 else 0.0
+        
         for s in self.species:
             assert len(s.members) > 0
             size = len(s.members)
-            total = 0.0
             for gid in s.members:
-                fitness = max(0.0, self.fitness[gid])
+                fitness = self.fitness[gid] + shift
                 adjusted_fitness[gid] = fitness / size
-                total += fitness
         return adjusted_fitness
     
     def reproduce(self) -> None:
