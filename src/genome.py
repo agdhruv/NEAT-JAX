@@ -81,6 +81,10 @@ class Genome:
             connections={innov: conn.copy() for innov, conn in self.connections.items()}
         )
     
+    @property
+    def num_parameters(self) -> int:
+        return sum(1 for c in self.connections.values() if c.enabled)
+    
     @staticmethod
     def from_initial_feedforward(
         n_inputs: int,
@@ -407,9 +411,11 @@ def _phenotype_forward(genome: Genome, x: jax.Array) -> jax.Array:
     
     exec_levels = [level for level in levels if level > 0]
     
-    # activation functions
+    # activation functions (keep outputs linear; apply squashing externally if needed)
     act_hidden = jnp.tanh
-    act_output = jnp.tanh
+    def identity_activation(s: jax.Array) -> jax.Array:
+        return s
+    act_output = identity_activation
     
     # set inputs (will also store outputs from hidden and output layers)
     vals: Dict[int, jax.Array] = {id: x[i] for i, id in enumerate(input_ids)}

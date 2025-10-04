@@ -1,8 +1,9 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from src.population import Population, NEATConfig
+from src.population import NEATConfig
 from src.genome import Genome, phenotype_forward
+from src.trainer import evolve
 from functools import partial
 
 # --- 1. Define the Target Function ---
@@ -52,40 +53,34 @@ def main():
     N_INPUTS = 3
     N_OUTPUTS = 5
     N_GENERATIONS = 100
-    config = NEATConfig()
+    config = NEATConfig(delta_threshold=1.0, pop_size=100)
     
     key = jr.PRNGKey(42)
-    key, pop_key = jr.split(key)
-    
-    print("Initializing population...")
-    population = Population.from_initial_feedforward(N_INPUTS, N_OUTPUTS, pop_key, config)
-    
-    print("Starting evolution...")
     eval_fn = partial(evaluate_genome, batch_size=128)
-    
-    for gen in range(N_GENERATIONS):
-        population.evaluate(eval_fn)
-        
-        # metrics
-        best_fitness = max(population.fitness) if population.fitness else -jnp.inf
-        avg_fitness = sum(population.fitness) / len(population.fitness) if population.fitness else -jnp.inf
-        num_species = len(population.species)
-        
-        print(
-            f"Gen {gen:03d} | Best Fitness: {best_fitness:6.4f} | "
-            f"Avg Fitness: {avg_fitness:6.4f} | Species: {num_species}"
-        )
-        
-        population.reproduce()
+
+    print("Starting evolution...")
+    result = evolve(
+        n_inputs=N_INPUTS,
+        n_outputs=N_OUTPUTS,
+        eval_fn=eval_fn,
+        key=key,
+        config=config,
+        generations=N_GENERATIONS,
+        add_bias=True,
+        verbose=True,
+    )
     
     print("\nEvolution finished. Testing the best genome...")
     
-    best_genome_idx = jnp.argmax(jnp.array(population.fitness))
-    best_genome = population.genomes[best_genome_idx]
+    # Identify best genome after evolution
+    best_idx = int(jnp.argmax(jnp.array(result.population.fitness)))
+    best_genome = result.population.genomes[best_idx]
+    best_fit = float(result.population.fitness[best_idx])
     
     print(f"Best genome had {len(best_genome.nodes)} nodes and {len(best_genome.connections)} connections.")
     
-    key, test_key = jr.split(population.key)
+    # Test the best genome
+    key, test_key = jr.split(key)
     test_inputs = jr.uniform(test_key, shape=(5, 3), minval=-1.0, maxval=1.0)
     
     test_targets = jax.vmap(target_function)(test_inputs)
