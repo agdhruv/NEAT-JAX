@@ -1,63 +1,62 @@
 from functools import partial
 
-import gymnasium as gym
+from evojax.task.slimevolley import SlimeVolley
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import numpy as np
-import slimevolleygym # type: ignore[import]
-
+import jax.lax as lax
 from src.genome import Genome, phenotype_forward
 from src.population import NEATConfig
 from src.trainer import evolve
 
 
-def evaluate_genome_slimevolley(genome: Genome, key: jax.Array, n_episodes: int = 3) -> float:
-    """
-    Evaluates a genome by playing SlimeVolley.
-    Returns the average cumulative reward over n_episodes.
-    """
-    env = gym.make("SlimeVolley-v0")
-    total_rewards = []
+max_steps = 3000
+env = SlimeVolley(test=True, max_steps=max_steps)
+
+def evaluate_genome_slimevolley(genome: Genome, key: jax.Array, n_episodes: int) -> float:
+    # Split keys for parallel episodes
+    episode_keys = jr.split(key, n_episodes)
+    states = env.reset(episode_keys)
     
-    for _ in range(n_episodes):
-        key, episode_key = jr.split(key)
-        seed = int(jr.randint(episode_key, (), 0, 10000))
-        obs, info = env.reset(seed=seed)
-        
-        done = False
-        episode_reward = 0.0
-        
-        while not done:
-            # Convert observation to JAX array and get action from genome
-            obs_jax = jnp.array(obs, dtype=jnp.float32)
-            action_values = phenotype_forward(genome, obs_jax)
-            
-            # Convert continuous outputs to discrete actions [forward, backward, jump]
-            # Use threshold of 0.5 for binary actions
-            action = (action_values > 0.5).astype(np.int32)
-            
-            obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
-            episode_reward += float(reward)
-        
-        total_rewards.append(episode_reward)
+    # Track rewards for each episode
+    episode_rewards = jnp.zeros(n_episodes)
+    dones = jnp.zeros(n_episodes, dtype=bool)
+    step_count = 0
     
-    env.close()
+    def cond_fn(val):
+        states, rewards, dones, step_count = val
+        return (~jnp.all(dones)) & (step_count < max_steps)
+
+    def body_fn(val):
+        states, rewards, dones, step_count = val
+        # Get actions for all active episodes
+        action_fn = jax.vmap(lambda obs: phenotype_forward(genome, obs))
+        action_values = action_fn(states.obs)
+        actions = (action_values - 0.5) * 2.0
+        
+        # Step all episodes
+        new_states, step_rewards, new_dones = env.step(states, actions)
+        
+        # Accumulate rewards only for active episodes
+        new_rewards = jnp.where(~dones, rewards + step_rewards, rewards)
+        new_dones = dones | new_dones
+        
+        return (new_states, new_rewards, new_dones, step_count + 1)
     
-    # Fitness is the average reward
-    fitness = float(np.mean(total_rewards))
-    return fitness
+    # Run the loop
+    final_states, final_rewards, final_dones, final_steps = lax.while_loop(cond_fn, body_fn, (states, episode_rewards, dones, step_count))
+    return float(jnp.mean(final_rewards))
 
 def main():
     # SlimeVolley has 12 inputs (state observation) and 3 outputs (actions)
     N_INPUTS = 12
     N_OUTPUTS = 3
     N_GENERATIONS = 100
-    
-    config = NEATConfig(pop_size=200, delta_threshold=0.6)
+
+    config = NEATConfig(pop_size=100, delta_threshold=0.6)
     key = jr.PRNGKey(42)
-    eval_fn = partial(evaluate_genome_slimevolley, n_episodes=5)
+    n_episodes = 3
+    eval_fn = partial(evaluate_genome_slimevolley, n_episodes=n_episodes)
     
     print("Starting SlimeVolley evolution...")
     result = evolve(
@@ -76,31 +75,8 @@ def main():
     best_fit = float(result.population.fitness[best_genome_idx])
     print(f"Best fitness during training: {best_fit:.2f}")
     
-    test_score = evaluate_genome_slimevolley(best_genome, jr.PRNGKey(321), n_episodes=5)
-    print(f"Average test return over 5 episodes: {test_score:.2f}")
-    
-    breakpoint()
-    
-    # Visual demonstration
-    env = gym.make("SlimeVolley-v0")
-    obs, info = env.reset(seed=42)
-    
-    done = False
-    episode_reward = 0.0
-    
-    print("\nPlaying demonstration game (rendering)...")
-    while not done:
-        obs_jax = jnp.array(obs, dtype=jnp.float32)
-        action_values = phenotype_forward(best_genome, obs_jax)
-        action = (action_values > 0.5).astype(np.int32)
-        
-        obs, reward, terminated, truncated, info = env.step(action)
-        done = terminated or truncated
-        episode_reward += float(reward)
-        env.render()
-    
-    print(f"Demonstration game reward: {episode_reward:.2f}")
-    env.close()
+    test_score = evaluate_genome_slimevolley(best_genome, jr.PRNGKey(321), n_episodes=n_episodes)
+    print(f"Average test return over {n_episodes} episodes: {test_score:.2f}")
 
 if __name__ == "__main__":
     main()
