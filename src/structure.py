@@ -106,14 +106,20 @@ def make_policy(plan: Plan):
         )
 
         # Level-by-level feedforward using scatter-add
-        def do_level(v, lvl):
+        def do_level(v: jnp.ndarray, lvl: jnp.ndarray):
             # Weighted sum into all dst nodes for this step
-            pre = jnp.zeros((E, N), v.dtype).at[:, plan.dst_idx].add(
-                v[:, plan.src_idx] * weights  # [E, M]
-            )
+            weighted_values = v[:, plan.src_idx] * weights  # [E, M]
+            pre = v.at[:, plan.dst_idx].add(weighted_values)
+            # apply activation function to all hidden nodes
             is_output = jnp.zeros((N,), dtype=bool).at[plan.output_idx].set(True)
-            # Hidden: tanh, Output: identity
-            activated = jnp.where(is_output[None, :], pre, jnp.tanh(pre))
+            is_input = jnp.zeros((N,), dtype=bool).at[plan.input_idx].set(True)
+            is_input = jax.lax.cond(
+                plan.bias_idx >= 0,
+                lambda v: v.at[plan.bias_idx].set(True),
+                lambda v: v,
+                is_input,
+            )
+            activated = jnp.where(is_output[None, :] | is_input[None, :], pre, jnp.tanh(pre))
             # Only update nodes that are at this level; keep others as-is
             mask = (plan.levels == lvl)[None, :]  # [1, N]
             v = jnp.where(mask, activated, v)
@@ -128,11 +134,14 @@ def make_policy(plan: Plan):
 
 if __name__ == "__main__":
     from src.genome import Genome
+    from src.draw import draw
     from src.innovation import InnovationTracker
     import jax.random as jr
     genome = Genome.from_initial_feedforward(3, 5, tracker=InnovationTracker(), key=jr.PRNGKey(0), add_bias=True, w_init_std=1.0)
     plan, weights = build_plan_and_weights(genome)
     policy = make_policy(plan)
     obs = jnp.array([[1.0, 2.0, 3.0]])
-    out = policy(weights, obs)
+    with jax.disable_jit(): # for debugging
+        out = policy(weights, obs)
     print(out)
+    draw(plan, weights, "plan.png")

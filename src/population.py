@@ -5,6 +5,8 @@ from .genome import Genome
 import jax
 import jax.random as jr
 import jax.numpy as jnp
+from src.structure import build_plan_and_weights, make_policy
+from src.helper import _get_weighted_rollout
 
 @dataclass
 class NEATConfig:
@@ -69,13 +71,69 @@ class Population:
         return Population(genomes, tracker, key, config)
     
     # ------------- main loop -------------
-    def evaluate(self, eval_fn: Callable[[Genome, jax.Array], float]) -> None:
+    def old_evaluate(self, eval_fn: Callable[[Genome, jax.Array], float]) -> None:
         scores: List[float] = [0.0] * len(self.genomes)
         key = self.key
         import tqdm
         for i, g in tqdm.tqdm(enumerate(self.genomes)):
             key, k = jr.split(key)
             scores[i] = float(eval_fn(g, k))
+        self.key = key
+        self.fitness = scores
+    
+    def evaluate(self, _eval_fn_ignored):
+        key = self.key
+        scores = [0.0] * len(self.genomes)
+
+        # 1) bucket by topology
+        buckets = {}  # sig -> {plan, idxs, weights}
+        for i, g in enumerate(self.genomes):
+            plan, w = build_plan_and_weights(g)
+            sig = plan.signature()
+            if sig not in buckets:
+                buckets[sig] = {"plan": plan, "idxs": [i], "weights": [w]}
+            else:
+                buckets[sig]["idxs"].append(i)
+                buckets[sig]["weights"].append(w)
+
+        # 2) evaluate each bucket in parallel
+        import tqdm
+        for sig, data in tqdm.tqdm(buckets.items()):
+            plan    = data["plan"]
+            idxs    = data["idxs"]
+            W       = jnp.stack(data["weights"])     # [G, M]
+            G       = W.shape[0]
+            
+            # keys for each genome
+            key, sub = jr.split(key)
+            keys = jr.split(sub, G)                  # [G, ...]
+            
+            # plan-specific policy + compiled weighted rollout (key, w) -> reward
+            policy_apply = make_policy(plan)
+            eval_one     = _get_weighted_rollout(plan, policy_apply, 3)
+            
+            num_devices = jax.device_count()
+            if G >= num_devices:
+                per = (G + num_devices - 1) // num_devices
+                pad = per * num_devices - G
+                Wp   = jnp.pad(W,   ((0, pad), (0, 0)))
+                keyp = jnp.pad(keys,((0, pad), (0, 0)))
+                Wp   = Wp.reshape(num_devices, per, -1)
+                keyp = keyp.reshape(num_devices, per, -1)
+
+                @jax.pmap
+                def p_eval(kshard, wshard):
+                    return jax.vmap(eval_one, in_axes=(0, 0))(kshard, wshard)  # [per]
+
+                bucket_scores = p_eval(keyp, Wp).reshape(-1)[:G]
+            else:
+                # vmap over genomes in this bucket
+                batched = jax.jit(jax.vmap(eval_one, in_axes=(0, 0)))
+                bucket_scores = batched(keys, W)
+
+            for j, s in zip(idxs, bucket_scores.tolist()):
+                scores[j] = float(s)
+
         self.key = key
         self.fitness = scores
     

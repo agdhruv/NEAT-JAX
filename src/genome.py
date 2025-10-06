@@ -389,7 +389,8 @@ class Genome:
 
 def _phenotype_forward(genome: Genome, x: jax.Array) -> jax.Array:
     """
-    A pure, JIT-compilable function to execute the forward pass of a genome's network.
+    A function to execute the forward pass of a genome's network.
+    There are faster versions in the structure.py module.
     """
     bias_ids = [n.id for n in genome.nodes.values() if n.type == BIAS]
     bias_id = bias_ids[0] if bias_ids else None
