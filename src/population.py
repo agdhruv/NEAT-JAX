@@ -72,7 +72,8 @@ class Population:
     def evaluate(self, eval_fn: Callable[[Genome, jax.Array], float]) -> None:
         scores: List[float] = [0.0] * len(self.genomes)
         key = self.key
-        for i, g in enumerate(self.genomes):
+        import tqdm
+        for i, g in tqdm.tqdm(enumerate(self.genomes)):
             key, k = jr.split(key)
             scores[i] = float(eval_fn(g, k))
         self.key = key
