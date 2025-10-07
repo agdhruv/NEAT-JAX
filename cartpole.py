@@ -8,6 +8,7 @@ from functools import partial
 from src.genome import Genome, phenotype_forward
 from src.population import NEATConfig
 from src.trainer import evolve
+from src.evaluator import SimpleEvaluator
 
 def cartpole_sim(genome: Genome, max_steps: int = 500) -> float:
     """Simulate a genome on Gymnasium's CartPole-v1.
@@ -68,12 +69,13 @@ if __name__ == "__main__":
     key = jr.PRNGKey(0)
 
     eval_fn = partial(cartpole_eval, episodes=3, max_steps=500)
+    evaluator = SimpleEvaluator(eval_fn)
 
     print("Starting CartPole evolution...")
     result = evolve(
         n_inputs=N_INPUTS,
         n_outputs=N_OUTPUTS,
-        eval_fn=eval_fn,
+        evaluator=evaluator,
         key=key,
         config=config,
         generations=N_GENERATIONS,

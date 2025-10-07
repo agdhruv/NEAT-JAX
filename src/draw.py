@@ -1,8 +1,8 @@
-from src.structure import Plan
+from src.structure import Topology
 import jax.numpy as jnp
 from typing import Optional
 
-def draw(plan: Plan, weights: Optional[jnp.ndarray] = None, save_path: Optional[str] = None):
+def draw(plan: Topology, weights: Optional[jnp.ndarray] = None, save_path: Optional[str] = None):
     """Draw the network structure vertically with matplotlib.
 
     Args:

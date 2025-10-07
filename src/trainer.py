@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 import jax
 import jax.random as jr
 
-from .genome import Genome
 from .population import Population, NEATConfig
+from .evaluator import Evaluator
 
 
 @dataclass
@@ -26,7 +26,7 @@ class EvolutionResult:
 def evolve(
     n_inputs: int,
     n_outputs: int,
-    eval_fn: Callable[[Genome, jax.Array], float],
+    evaluator: Evaluator,
     *,
     key: jax.Array,
     config: Optional[NEATConfig] = None,
@@ -39,7 +39,7 @@ def evolve(
     Args:
         n_inputs: Number of input nodes for initial topology.
         n_outputs: Number of output nodes for initial topology.
-        eval_fn: Callable that maps (genome, key) -> fitness (higher is better).
+        evaluator: Evaluator that maps (genome, key) -> fitness (higher is better).
         key: JAX PRNGKey.
         config: NEAT configuration. If None, defaults are used.
         generations: Number of generations to evolve.
@@ -63,7 +63,7 @@ def evolve(
     history: List[EvolutionMetrics] = []
 
     for gen in range(generations):
-        population.evaluate(eval_fn)
+        population.evaluate(evaluator)
 
         assert population.fitness, Exception("Fitness values should be defined for all genomes (even if they are zero)")
         # Collect metrics

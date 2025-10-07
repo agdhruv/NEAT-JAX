@@ -5,6 +5,7 @@ from src.population import NEATConfig
 from src.genome import Genome, phenotype_forward
 from src.trainer import evolve
 from functools import partial
+from src.evaluator import SimpleEvaluator
 
 # --- 1. Define the Target Function ---
 # A moderately complex function for the network to learn.
@@ -57,12 +58,13 @@ def main():
     
     key = jr.PRNGKey(42)
     eval_fn = partial(evaluate_genome, batch_size=128)
+    evaluator = SimpleEvaluator(eval_fn)
 
     print("Starting evolution...")
     result = evolve(
         n_inputs=N_INPUTS,
         n_outputs=N_OUTPUTS,
-        eval_fn=eval_fn,
+        evaluator=evaluator,
         key=key,
         config=config,
         generations=N_GENERATIONS,

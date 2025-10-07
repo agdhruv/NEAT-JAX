@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from .genome import INPUT, HIDDEN, OUTPUT, BIAS, Genome
 
 @dataclass(frozen=True)
-class Plan:
+class Topology:
     input_idx: jnp.ndarray    # [Ni]
     output_idx: jnp.ndarray   # [No]
     bias_idx: int             # -1 if none
@@ -24,14 +24,14 @@ class Plan:
             int(self.bias_idx), int(self.n_nodes)
         )
 
-def build_plan_and_weights(genome: Genome) -> Tuple[Plan, jnp.ndarray]:
+def build_topology_and_weights(genome: Genome) -> Tuple[Topology, jnp.ndarray]:
     """Extract static network structure and dynamic weights from genome.
     
-    Converts a NEAT genome into a Plan (static topology) and weight array
+    Converts a NEAT genome into a Topology (static topology) and weight array
     (dynamic parameters) for efficient JAX compilation and execution.
     
     Returns:
-        Plan: Static network structure with node indices and connections
+        Topology: Static network structure with node indices and connections
         jnp.ndarray: Dynamic connection weights for enabled edges
     """
     # Map node-id -> 0..N-1
@@ -53,7 +53,7 @@ def build_plan_and_weights(genome: Genome) -> Tuple[Plan, jnp.ndarray]:
     levels = jnp.array([genome.nodes[nid].level for nid in node_ids], dtype=jnp.int32)
     level_ids = jnp.unique(levels, sorted=True)
 
-    plan = Plan(
+    topology = Topology(
         input_idx=jnp.array(sorted(input_idx), dtype=jnp.int32),
         output_idx=jnp.array(sorted(output_idx), dtype=jnp.int32),
         bias_idx=int(bias_idx),
@@ -63,17 +63,17 @@ def build_plan_and_weights(genome: Genome) -> Tuple[Plan, jnp.ndarray]:
         level_ids=level_ids,
         n_nodes=len(node_ids),
     )
-    return plan, weights
+    return topology, weights
 
-def make_policy(plan: Plan):
-    """Create a JIT-compiled policy function for a given network plan.
+def topology2policy(topology: Topology):
+    """Create a JIT-compiled policy function for a given network topology.
     
-    This function compiles once per unique plan (network structure) and returns
+    This function compiles once per unique topology (network structure) and returns
     a JIT-compiled function that can be called repeatedly with different weights
     and observations.
     
     Args:
-        plan: Network structure specification containing node indices, connections,
+        topology: Network structure specification containing node indices, connections,
               and topology information
               
     Returns:
@@ -82,25 +82,25 @@ def make_policy(plan: Plan):
         
         Where:
         - weights: [M] connection weights for all enabled edges
-        - obs: [E, obs_dim] batch of observations (obs_dim == len(plan.input_idx))
-        - returns: [E, act_dim] batch of actions (act_dim == len(plan.output_idx))
+        - obs: [E, obs_dim] batch of observations (obs_dim == len(topology.input_idx))
+        - returns: [E, act_dim] batch of actions (act_dim == len(topology.output_idx))
     """
     @jax.jit
     def apply(weights: jnp.ndarray, obs: jnp.ndarray) -> jnp.ndarray:
         """
         weights: [M]
-        obs:     [E, obs_dim]     (obs_dim == len(plan.input_idx))
-        returns: [E, act_dim]     (act_dim == len(plan.output_idx))
+        obs:     [E, obs_dim]     (obs_dim == len(topology.input_idx))
+        returns: [E, act_dim]     (act_dim == len(topology.output_idx))
         """
         E = obs.shape[0]
-        N = plan.n_nodes
+        N = topology.n_nodes
 
         # Node activations
         vals = jnp.zeros((E, N), dtype=obs.dtype)
-        vals = vals.at[:, plan.input_idx].set(obs)
+        vals = vals.at[:, topology.input_idx].set(obs)
         vals = jax.lax.cond(
-            plan.bias_idx >= 0,
-            lambda v: v.at[:, plan.bias_idx].set(1.0),
+            topology.bias_idx >= 0,
+            lambda v: v.at[:, topology.bias_idx].set(1.0),
             lambda v: v,
             vals,
         )
@@ -108,26 +108,26 @@ def make_policy(plan: Plan):
         # Level-by-level feedforward using scatter-add
         def do_level(v: jnp.ndarray, lvl: jnp.ndarray):
             # Weighted sum into all dst nodes for this step
-            weighted_values = v[:, plan.src_idx] * weights  # [E, M]
-            pre = v.at[:, plan.dst_idx].add(weighted_values)
+            weighted_values = v[:, topology.src_idx] * weights  # [E, M]
+            pre = v.at[:, topology.dst_idx].add(weighted_values)
             # apply activation function to all hidden nodes
-            is_output = jnp.zeros((N,), dtype=bool).at[plan.output_idx].set(True)
-            is_input = jnp.zeros((N,), dtype=bool).at[plan.input_idx].set(True)
+            is_output = jnp.zeros((N,), dtype=bool).at[topology.output_idx].set(True)
+            is_input = jnp.zeros((N,), dtype=bool).at[topology.input_idx].set(True)
             is_input = jax.lax.cond(
-                plan.bias_idx >= 0,
-                lambda v: v.at[plan.bias_idx].set(True),
+                topology.bias_idx >= 0,
+                lambda v: v.at[topology.bias_idx].set(True),
                 lambda v: v,
                 is_input,
             )
             activated = jnp.where(is_output[None, :] | is_input[None, :], pre, jnp.tanh(pre))
             # Only update nodes that are at this level; keep others as-is
-            mask = (plan.levels == lvl)[None, :]  # [1, N]
+            mask = (topology.levels == lvl)[None, :]  # [1, N]
             v = jnp.where(mask, activated, v)
             return v, None
 
-        vals, _ = jax.lax.scan(do_level, vals, plan.level_ids)
+        vals, _ = jax.lax.scan(do_level, vals, topology.level_ids)
         assert isinstance(vals, jnp.ndarray)
-        actions = vals[:, plan.output_idx]
+        actions = vals[:, topology.output_idx]
         return actions
 
     return apply
@@ -138,10 +138,10 @@ if __name__ == "__main__":
     from src.innovation import InnovationTracker
     import jax.random as jr
     genome = Genome.from_initial_feedforward(3, 5, tracker=InnovationTracker(), key=jr.PRNGKey(0), add_bias=True, w_init_std=1.0)
-    plan, weights = build_plan_and_weights(genome)
-    policy = make_policy(plan)
+    topology, weights = build_topology_and_weights(genome)
+    policy = topology2policy(topology)
     obs = jnp.array([[1.0, 2.0, 3.0]])
     with jax.disable_jit(): # for debugging
         out = policy(weights, obs)
     print(out)
-    draw(plan, weights, "plan.png")
+    draw(topology, weights, "topology.png")
