@@ -75,28 +75,13 @@ class VectorizedEvaluator(Evaluator):
             # Get compiled evaluation function for this topology
             eval_one = self.rollout_factory(topology, self.n_episodes)
             
-            # Multi-device parallelization if we have enough genomes
-            num_devices = jax.device_count()
-            if G >= num_devices and num_devices > 1:
-                per = (G + num_devices - 1) // num_devices
-                pad = per * num_devices - G
-                Wp = jnp.pad(W, ((0, pad), (0, 0)))
-                keyp = jnp.pad(keys, ((0, pad), (0, 0)))
-                Wp = Wp.reshape(num_devices, per, -1)
-                keyp = keyp.reshape(num_devices, per, -1)
-                
-                @jax.pmap
-                def p_eval(kshard, wshard):
-                    return jax.vmap(eval_one, in_axes=(0, 0))(kshard, wshard)
-                
-                bucket_scores = p_eval(keyp, Wp).reshape(-1)[:G]
-            else:
-                # Single-device vectorization (vmap over genomes)
-                batched = jax.jit(jax.vmap(eval_one, in_axes=(0, 0)))
-                bucket_scores = batched(keys, W)
+            # Single-device vectorization (vmap over genomes in this bucket)
+            batched = jax.vmap(eval_one, in_axes=(0, 0))
+            bucket_scores = batched(keys, W)
             
             # Store scores for this bucket
-            for j, s in zip(idxs, bucket_scores.tolist()):
+            bucket_scores = bucket_scores.tolist()
+            for j, s in zip(idxs, bucket_scores):
                 scores[j] = float(s)
         
         return scores

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 
 import jax
 import jax.random as jr
@@ -80,7 +80,39 @@ class Genome:
             nodes={nid: node.copy() for nid, node in self.nodes.items()},
             connections={innov: conn.copy() for innov, conn in self.connections.items()}
         )
-    
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert genome to JSON-serializable dictionary."""
+        return {
+            "nodes": {
+                nid: {"id": node.id, "type": node.type, "level": node.level}
+                for nid, node in self.nodes.items()
+            },
+            "connections": {
+                innov: {
+                    "innovation": conn.innovation,
+                    "in_node": conn.in_node,
+                    "out_node": conn.out_node,
+                    "weight": float(conn.weight),
+                    "enabled": conn.enabled
+                }
+                for innov, conn in self.connections.items()
+            }
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Genome":
+        """Create genome from dictionary."""
+        nodes = {
+            int(nid): NodeGene(**node_data)
+            for nid, node_data in data["nodes"].items()
+        }
+        connections = {
+            int(innov): ConnectionGene(**conn_data)
+            for innov, conn_data in data["connections"].items()
+        }
+        return cls(nodes=nodes, connections=connections)
+
     @property
     def num_parameters(self) -> int:
         return sum(1 for c in self.connections.values() if c.enabled)

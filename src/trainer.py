@@ -1,11 +1,13 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import jax
 import jax.random as jr
+import jax.numpy as jnp
 
 from .population import Population, NEATConfig
 from .evaluator import Evaluator
+from .genome import Genome
 
 
 @dataclass
@@ -15,6 +17,30 @@ class EvolutionMetrics:
     avg_fitness: float
     num_species: int
     mean_parameters: float
+    best_genome: Genome
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to JSON-serializable dictionary."""
+        return {
+            "generation": self.generation,
+            "best_fitness": self.best_fitness,
+            "avg_fitness": self.avg_fitness,
+            "num_species": self.num_species,
+            "mean_parameters": self.mean_parameters,
+            "best_genome": self.best_genome.to_dict()
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EvolutionMetrics":
+        """Create from dictionary."""
+        return cls(
+            generation=data["generation"],
+            best_fitness=data["best_fitness"],
+            avg_fitness=data["avg_fitness"],
+            num_species=data["num_species"],
+            mean_parameters=data["mean_parameters"],
+            best_genome=Genome.from_dict(data["best_genome"])
+        )
 
 
 @dataclass
@@ -78,6 +104,7 @@ def evolve(
             avg_fitness=float(avg_fitness),
             num_species=int(num_species),
             mean_parameters=float(mean_parameters),
+            best_genome=population.genomes[int(jnp.argmax(jnp.array(population.fitness)))],
         )
         history.append(metrics)
 

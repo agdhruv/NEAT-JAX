@@ -8,9 +8,13 @@ dependencies = [
     "evojax>=0.2.17",
     "gymnasium>=1.2.1",
     "ipykernel>=6.30.1",
+    "ipywidgets>=8.1.7",
     "jax[cpu]>=0.7.1", # Always install CPU version
     "jax[tpu]>=0.7.1; sys_platform != 'darwin'", # Add TPU on non-macOS
+    "networkx>=3.5",
     "opencv-python>=4.12.0.88",
+    "pandas>=2.3.3",
+    "pillow>=11.3.0",
     "slimevolleygym>=0.1.0",
     "tqdm>=4.67.1",
 ]

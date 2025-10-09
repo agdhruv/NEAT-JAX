@@ -1,4 +1,5 @@
 from functools import partial
+import json
 
 from evojax.task.slimevolley import SlimeVolley
 import jax
@@ -13,7 +14,7 @@ from src.topology import topology2policy
 from src.evaluator import VectorizedEvaluator
 
 max_steps = 500
-env = SlimeVolley(test=True, max_steps=max_steps)
+env = SlimeVolley(test=False, max_steps=max_steps)
 
 _rollout_cache = {}  # Cache compiled rollout functions per (topology_sig, n_episodes)
 _policy_cache = {}   # Cache compiled policies per topology
@@ -82,10 +83,10 @@ if __name__ == "__main__":
     # SlimeVolley has 12 inputs (state observation) and 3 outputs (actions)
     N_INPUTS = 12
     N_OUTPUTS = 3
-    N_GENERATIONS = 500
+    N_GENERATIONS = 4
     N_EPISODES = 16
 
-    config = NEATConfig(pop_size=128, delta_threshold=0.6, w_init_std=0.5)
+    config = NEATConfig(pop_size=128, delta_threshold=1.0, w_init_std=0.5)
     key = jr.PRNGKey(42)
     evaluator = VectorizedEvaluator(get_slimevolley_rollout, n_episodes=N_EPISODES)
     
@@ -115,4 +116,11 @@ if __name__ == "__main__":
     test_score = evaluate_genome_slimevolley(
         best_genome, jr.PRNGKey(321), n_episodes=N_EPISODES
     )
-    print(f"Average test return: {test_score:.2f}")
+    print(f"Average test reward: {test_score:.2f}")
+    
+    with open('slimevolley_history_2.json', 'w') as f:
+        data = {
+            "history": [h.to_dict() for h in result.history],
+            "time_taken": end_time - start_time,
+        }
+        json.dump(data, f)
