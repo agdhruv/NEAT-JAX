@@ -15,7 +15,7 @@ NEAT is so interesting because it learns **topology and weights together**. NEAT
 
 ## Results: SlimeVolley
 
-There are a couple of examples in the `examples/` folder. The most interesting one is SlimeVolley. We trained an agent to play (SlimeVolley)[https://github.com/hardmaru/slimevolleygym] (a volleyball game). We started with 128 randomly-initialized fully-connected networks, which mutated, reproduced, and evolved over 500 generations.
+There are a couple of examples in the `examples/` folder. The most interesting one is SlimeVolley. We trained an agent to play [SlimeVolley](https://github.com/hardmaru/slimevolleygym), a game where the goal is to beat a computer-controlled opponent in a volleyball match. We started with 128 randomly-initialized fully-connected networks, which mutated, reproduced, and evolved over 500 generations.
 
 ### Evolution Progress
 
@@ -26,8 +26,8 @@ Open `results/evolution.gif` to see how the network evolved to play the game. It
 ![Metrics](results/training_metrics.png)
 
 Key observations from evolution:
-- **Fitness**: Steadily improves as networks discover better strategies (equivalent of reward in the RL world) (green line shows the fitness of the best network in each generation, and the blue line shows the average fitness of all networks in each generation)
-- **Complexity**: Networks naturally grow more parameters
+- **Fitness**: Fitness is basically the same as reward in the RL world. We see that it steadily improves as networks discover better strategies (green line shows the fitness of the best network in each generation, and the blue line shows the average fitness of all networks in each generation)
+- **Complexity**: Networks naturally grow more complex as they evolve, measured by the number of parameters
 - **Speciation**: Multiple species emerge, protecting diverse approaches
 
 ### Gameplay
@@ -52,11 +52,14 @@ from src.evaluator import SimpleEvaluator
 from src.trainer import evolve
 import jax
 
-config = NEATConfig() # contains hyperparameters like population size; use defaults
+config = NEATConfig() # contains hyperparams; use defaults
 evaluator = SimpleEvaluator(your_fitness_function)
-# `your_fitness_function` above is a function that takes a genome and a JAX random key and returns a fitness score
 
-# Evolve!
+# Note: `your_fitness_function` above is a function
+# that takes a genome and a JAX random key and returns
+# a fitness score
+
+# Evolve! (Train!)
 result = evolve(
   n_inputs=3, # number of inputs
   n_outputs=5, # number of outputs
