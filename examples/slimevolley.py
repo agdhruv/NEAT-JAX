@@ -1,4 +1,3 @@
-from functools import partial
 import json
 
 from evojax.task.slimevolley import SlimeVolley

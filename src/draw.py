@@ -1,3 +1,9 @@
+"""
+This file contains utilities to draw the network structure, mostly written by AI.
+It doesn't contain any of the core functions of the NEAT algorithm, it's just a
+utility to draw the network structure.
+"""
+
 from src.topology import Topology, build_topology_and_weights
 from src.genome import Genome, INPUT, OUTPUT, HIDDEN, BIAS
 import jax.numpy as jnp
@@ -193,7 +199,8 @@ def draw(plan: Topology, weights: Optional[jnp.ndarray] = None, save_path: Optio
 
 
 def plot_evolution(genomes: List[Genome], save_paths: Optional[List[str]] = None, 
-                   draw_weight_labels: bool = False, draw_node_labels: bool = True) -> Optional[List]:
+                   draw_weight_labels: bool = False, draw_node_labels: bool = True,
+                   generations: Optional[List[int]] = None) -> Optional[List]:
     """Plot multiple genomes with aligned structure for evolution visualization.
     
     This function ensures all genome visualizations have identical layouts by:
@@ -206,6 +213,7 @@ def plot_evolution(genomes: List[Genome], save_paths: Optional[List[str]] = None
         save_paths: Optional list of save paths (same length as genomes)
         draw_weight_labels: Whether to show weight values on edges
         draw_node_labels: Whether to show labels on nodes
+        generations: Optional list of generations to show in the plot
         
     Returns:
         List of figures if save_paths is None, otherwise None
@@ -317,11 +325,11 @@ def plot_evolution(genomes: List[Genome], save_paths: Optional[List[str]] = None
     # Define 3 columns: inputs (+ bias) on left, hidden in middle, outputs on right
     # X positions
     x_input = 0.0
-    x_hidden = 5.0
-    x_output = 10.0
+    x_hidden = 10.0
+    x_output = 20.0
     
     # Y spacing between nodes
-    y_spacing = 0.9
+    y_spacing = 1.0
     
     # Compute positions
     super_positions = {}
@@ -387,6 +395,22 @@ def plot_evolution(genomes: List[Genome], save_paths: Optional[List[str]] = None
         
         # Create figure with fixed size for consistency
         fig, ax = plt.subplots(figsize=(14, 10))
+        
+        # Calculate axis bounds to center the network
+        if super_positions:
+            x_coords = [pos[0] for pos in super_positions.values()]
+            y_coords = [pos[1] for pos in super_positions.values()]
+            x_min, x_max = min(x_coords), max(x_coords)
+            y_min, y_max = min(y_coords), max(y_coords)
+            
+            # Add padding around the network (20% on each side)
+            x_range = x_max - x_min
+            y_range = y_max - y_min
+            x_padding = x_range * 0.2
+            y_padding = y_range * 0.2
+            
+            ax.set_xlim(x_min - x_padding, x_max + x_padding)
+            ax.set_ylim(y_min - y_padding, y_max + y_padding)
         
         # Draw all edges (supergraph)
         for src_super, dst_super in super_edges:
@@ -467,22 +491,22 @@ def plot_evolution(genomes: List[Genome], save_paths: Optional[List[str]] = None
             patches.Patch(color='lightgreen', label='Output'),
             patches.Patch(color='yellow', label='Bias')
         ]
-        ax.legend(handles=legend_elements, bbox_to_anchor=(1, 0), loc='lower right')
+        ax.legend(handles=legend_elements, bbox_to_anchor=(1, 0), loc='upper right')
         
-        # Add genome info
+        # Add genome info as title
         n_nodes = len(super_id_to_node)
         n_edges = len(genome_edges)
-        ax.text(0.02, 0.98, f'Genome {genome_idx}: {n_nodes} nodes, {n_edges} edges',
-               transform=ax.transAxes, ha='left', va='top',
-               fontsize=10, fontweight='bold',
-               bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8))
+        generation = generations[genome_idx] if generations else genome_idx
+        ax.set_title(f'Genome {generation}: {n_nodes} nodes, {n_edges} edges',
+                    fontsize=12, fontweight='bold', pad=15,
+                    bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8))
         
         plt.tight_layout()
         
         if save_paths and genome_idx < len(save_paths):
             plt.savefig(save_paths[genome_idx], dpi=300, bbox_inches='tight')
             plt.close(fig)
-            print(f"Genome {genome_idx} visualization saved to {save_paths[genome_idx]}")
+            print(f"Genome {generation} visualization saved to {save_paths[genome_idx]}")
         elif save_paths is None and figures is not None:
             figures.append(fig)
     

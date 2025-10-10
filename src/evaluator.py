@@ -5,7 +5,6 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 from .genome import Genome
-from .topology import Topology
 
 class Evaluator(ABC):
     """Abstract base class for genome evaluation strategies."""
