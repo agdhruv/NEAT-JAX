@@ -13,6 +13,8 @@ Instead of training neural networks with backpropagation, NEAT evolves them thro
 
 NEAT is so interesting because it learns **topology and weights together**. NEAT discovers the right architecture while optimizing it.
 
+**Hybrid Evolution + Backprop**: This implementation also supports optional backpropagation - when enabled, all genomes are optimized via gradient descent within each generation before fitness evaluation, combining evolutionary structure search with gradient-based weight optimization. See the `examples/classification.py` for a demonstration.
+
 ## Results: SlimeVolley
 
 There are a couple of examples in the `examples/` folder. The most interesting one is SlimeVolley. We trained an agent to play [SlimeVolley](https://github.com/hardmaru/slimevolleygym), a game where the goal is to beat a computer-controlled opponent in a volleyball match. We started with 128 randomly-initialized fully-connected networks, which mutated, reproduced, and evolved over 500 generations.
@@ -70,7 +72,7 @@ result = evolve(
 )
 ```
 
-See `examples/` for complete examples (XOR, CartPole, SlimeVolley).
+See `examples/` for complete examples (XOR, CartPole, SlimeVolley, classification task with backprop).
 
 ## References
 

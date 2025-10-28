@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Callable, Tuple
 
 import jax
 import jax.random as jr
@@ -59,6 +59,8 @@ def evolve(
     generations: int = 100,
     add_bias: bool = True,
     verbose: bool = True,
+    loss_fn: Optional[Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]] = None,
+    train_data: Optional[Tuple[jnp.ndarray, jnp.ndarray]] = None,
 ) -> EvolutionResult:
     """Run the NEAT evolutionary loop for a fixed number of generations.
 
@@ -71,6 +73,8 @@ def evolve(
         generations: Number of generations to evolve.
         add_bias: Whether to include a bias node in initial topology.
         verbose: If True, print per-generation metrics.
+        loss_fn: Optional loss function for backprop (predictions, targets) -> scalar.
+        train_data: Optional training data (inputs, targets) for backprop.
 
     Returns:
         EvolutionResult containing final population, history, and best genome.
@@ -89,6 +93,22 @@ def evolve(
     history: List[EvolutionMetrics] = []
 
     for gen in range(generations):
+        # Optional backpropagation step before evaluation
+        if cfg.enable_backprop:
+            if loss_fn is None or train_data is None:
+                raise ValueError("loss_fn and train_data must be provided when enable_backprop=True")
+            
+            from .backprop import optimize_weights
+            for genome in population.genomes:
+                optimize_weights(
+                    genome,
+                    loss_fn,
+                    train_data,
+                    cfg.backprop_steps,
+                    cfg.backprop_lr,
+                    cfg.backprop_batch_size,
+                )
+        
         population.evaluate(evaluator)
 
         assert population.fitness, Exception("Fitness values should be defined for all genomes (even if they are zero)")

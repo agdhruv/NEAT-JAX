@@ -26,6 +26,11 @@ class NEATConfig:
     weight_sigma: float = 0.5
     weight_reset_prob: float = 0.1
     w_init_std: float = 1.0
+    # backpropagation
+    enable_backprop: bool = False
+    backprop_steps: int = 100
+    backprop_lr: float = 0.01
+    backprop_batch_size: Optional[int] = None  # None = full batch
 
 @dataclass
 class Species:

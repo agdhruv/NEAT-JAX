@@ -1,2 +1,4 @@
 __pycache__/
 results/plots/
+*.egg-info/
+.DS_Store
